@@ -64,34 +64,62 @@ const ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 
 class Sheet{
-  constructor(src,fw,fh){
+  constructor(src,fw,fh,removeBlack=false){
     this.fw=fw;this.fh=fh;this.ok=false;
     this.img=new Image();
     this.img.crossOrigin='anonymous';
     this.img.onload=()=>{
-      this.ok=true;
-      this.cols=Math.floor(this.img.width/this.fw);
-      this.rows=Math.floor(this.img.height/this.fh);
-      console.log('[v0] Sheet loaded:',this.img.width,'x',this.img.height,'frames:',this.cols,'x',this.rows);
+      if(removeBlack){
+        // Create canvas to process the image and remove black background
+        const tempCanvas=document.createElement('canvas');
+        tempCanvas.width=this.img.width;
+        tempCanvas.height=this.img.height;
+        const tempCtx=tempCanvas.getContext('2d');
+        tempCtx.drawImage(this.img,0,0);
+        const imageData=tempCtx.getImageData(0,0,tempCanvas.width,tempCanvas.height);
+        const data=imageData.data;
+        // Make black/near-black pixels transparent
+        for(let i=0;i<data.length;i+=4){
+          const r=data[i],g=data[i+1],b=data[i+2];
+          // If pixel is dark (near black), make it transparent
+          if(r<30&&g<30&&b<30){
+            data[i+3]=0; // Set alpha to 0
+          }
+        }
+        tempCtx.putImageData(imageData,0,0);
+        // Create new image from processed canvas
+        this.processedImg=new Image();
+        this.processedImg.onload=()=>{
+          this.ok=true;
+          this.cols=Math.floor(this.img.width/this.fw);
+          this.rows=Math.floor(this.img.height/this.fh);
+        };
+        this.processedImg.src=tempCanvas.toDataURL('image/png');
+      }else{
+        this.ok=true;
+        this.cols=Math.floor(this.img.width/this.fw);
+        this.rows=Math.floor(this.img.height/this.fh);
+      }
     };
     this.img.onerror=()=>{console.log('[v0] Sheet failed to load');};
     this.img.src=src;
   }
   blit(col,row,dx,dy,flipX=false){
     if(!this.ok)return;
+    const img=this.processedImg||this.img;
     // Clamp to actual sprite sheet bounds
     col=Math.max(0,Math.min(col,this.cols-1));
     row=Math.max(0,Math.min(row,this.rows-1));
     ctx.save();
     if(flipX){ctx.translate(Math.round(dx)+this.fw,Math.round(dy));ctx.scale(-1,1);dx=0;dy=0;}
     else{dx=Math.round(dx);dy=Math.round(dy);}
-    ctx.drawImage(this.img,col*this.fw,row*this.fh,this.fw,this.fh,dx,dy,this.fw,this.fh);
+    ctx.drawImage(img,col*this.fw,row*this.fh,this.fw,this.fh,dx,dy,this.fw,this.fh);
     ctx.restore();
   }
 }
 
 const charSh=new Sheet(CHAR_SRC,20,29);
-const logSh =new Sheet(LOG_SRC,32,32);
+const logSh =new Sheet(LOG_SRC,32,32,true); // removeBlack=true for enemy sprites
 const owSh  =new Sheet(OW_SRC,16,16);
 
 // Map tile types: 0=grass 1=wall 2=water
