@@ -40,11 +40,21 @@ class Sheet{
   constructor(src,fw,fh){
     this.fw=fw;this.fh=fh;this.ok=false;
     this.img=new Image();
-    this.img.onload=()=>{this.ok=true;};
+    this.img.crossOrigin='anonymous';
+    this.img.onload=()=>{
+      this.ok=true;
+      this.cols=Math.floor(this.img.width/this.fw);
+      this.rows=Math.floor(this.img.height/this.fh);
+      console.log('[v0] Sheet loaded:',this.img.width,'x',this.img.height,'frames:',this.cols,'x',this.rows);
+    };
+    this.img.onerror=()=>{console.log('[v0] Sheet failed to load');};
     this.img.src=src;
   }
   blit(col,row,dx,dy,flipX=false){
     if(!this.ok)return;
+    // Clamp to actual sprite sheet bounds
+    col=Math.max(0,Math.min(col,this.cols-1));
+    row=Math.max(0,Math.min(row,this.rows-1));
     ctx.save();
     if(flipX){ctx.translate(Math.round(dx)+this.fw,Math.round(dy));ctx.scale(-1,1);dx=0;dy=0;}
     else{dx=Math.round(dx);dy=Math.round(dy);}
@@ -53,8 +63,8 @@ class Sheet{
   }
 }
 
-const charSh=new Sheet(CHAR_SRC,17,20);
-const logSh =new Sheet(LOG_SRC,32,32);
+const charSh=new Sheet(CHAR_SRC,20,29);
+const logSh =new Sheet(LOG_SRC,64,64);
 const owSh  =new Sheet(OW_SRC,16,16);
 
 // Map tile types: 0=grass 1=wall 2=water
@@ -164,18 +174,23 @@ class Player{
 
   draw(){
     if(this.if_>0&&Math.floor(this.if_*10)%2===0)return;
-    const ox=Math.round(this.x)-2, oy=Math.round(this.y)-3;
+    // Center sprite on collision box
+    const ox=Math.round(this.x+this.w/2-charSh.fw/2);
+    const oy=Math.round(this.y+this.h-charSh.fh);
     const dn=this.dn();
     if(!charSh.ok){ctx.fillStyle='#e8a84a';ctx.fillRect(this.x,this.y,this.w,this.h);return;}
+    // Use available rows in sprite sheet, with bounds checking
+    const maxRow=charSh.rows-1;
     if(this.state==='attack'){
-      // sword rows: left=5, right=6, down=7, up=7(flip or reuse)
-      const atkRow={left:5,right:6,down:7,up:7}[dn]||7;
-      const flipX=(dn==='right');
-      charSh.blit(this.f%3, atkRow, ox, oy, false);
+      // Attack animation - use row 0 with frame offset for attack
+      const atkRow=Math.min({down:0,left:0,right:0,up:0}[dn]||0,maxRow);
+      const flipX=(dn==='left');
+      charSh.blit(this.f%charSh.cols, atkRow, ox, oy, flipX);
     }else{
-      // walk rows: down=0,left=1,right=2,up=3
-      const walkRow={down:0,left:1,right:2,up:3}[dn]||0;
-      charSh.blit(this.f%4, walkRow, ox, oy, false);
+      // Walk animation - cycle through frames on row 0
+      const walkRow=Math.min(0,maxRow);
+      const flipX=(dn==='left');
+      charSh.blit(this.f%charSh.cols, walkRow, ox, oy, flipX);
     }
   }
 }
@@ -221,17 +236,24 @@ class Enemy{
   }
 
   draw(){
-    const ox=Math.round(this.x)-9,oy=Math.round(this.y)-8;
+    // Center sprite on collision box
+    const ox=Math.round(this.x+this.w/2-logSh.fw/2);
+    const oy=Math.round(this.y+this.h-logSh.fh);
     if(!logSh.ok){ctx.fillStyle='#a03020';ctx.fillRect(this.x,this.y,this.w,this.h);return;}
-    const rowMap={2:0,3:1,1:2,0:3};
-    logSh.blit(this.f%6, rowMap[this.dir]||0, ox, oy, false);
-    // hp bar
-    ctx.fillStyle='#400';ctx.fillRect(this.x,this.y-5,this.w,3);
+    // Use available rows with bounds checking
+    const maxRow=logSh.rows-1;
+    const maxCol=logSh.cols-1;
+    const rowMap={2:0,3:Math.min(1,maxRow),1:Math.min(2,maxRow),0:Math.min(3,maxRow)};
+    const flipX=(this.dir===3); // flip for left direction
+    logSh.blit(Math.min(this.f%6,maxCol), Math.min(rowMap[this.dir]||0,maxRow), ox, oy, flipX);
+    // hp bar (positioned above sprite)
+    const hpY=oy-4;
+    ctx.fillStyle='#400';ctx.fillRect(this.x,hpY,this.w,3);
     ctx.fillStyle=this.type===1?'#d08010':'#e03030';
-    ctx.fillRect(this.x,this.y-5,this.w*(this.hp/this.maxHp),3);
+    ctx.fillRect(this.x,hpY,this.w*(this.hp/this.maxHp),3);
     if(this.state==='walk'){
       ctx.fillStyle='#ffee44';ctx.font='bold 8px monospace';
-      ctx.fillText('!',this.x+5,this.y-6);
+      ctx.fillText('!',this.x+5,hpY-4);
     }
   }
 }
